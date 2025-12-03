@@ -29,35 +29,27 @@ class BaseReader(metaclass=abc.ABCMeta):
     To make your own reader class, you can inherit from this base class
     and implement the following methods:
 
-    - `retrieve_latest_entries`: gather the URLs of the latest pages to
-      be read, analysed, and rendered by the class
-    - `_read_metadata` (static): extract whatever metadata you might
-      need from the HTML soup of a web page and its URL
-    - `_read_contents` (static): extract the core (text) content from
-      the HTML soup of a web page
-    - `render`: create a Markdown string to summarise the relevant
-      content on a web page
+    - `retrieve_latest_entries`
+    - `_read_metadata`
+    - `_read_contents`
+    - `render`
 
     Parameters
     ----------
     urls : list[str]
-        List of URLs from which to gather content.
+        List of URLs.
     terms : Iterable[str], optional
-        Key terms to filter content on. By default, we look for any
-        mention of `Office for National Statistics` or `ONS`.
+        Key terms to filter content on.
     dates : list[dt.date], optional
-        List of dates from which to pull entries. The `parliai_public.dates`
-        module may be of help. If not specified, only yesterday is used.
-    outdir : str, default="out"
-        Location of a directory in which to write outputs.
+        Dates to pull entries from.
+    outdir : str
+        Output directory.
     prompt : str, optional
-        System prompt provided to the LLM. If not specified, this is
-        read from the default configuration file.
+        LLM prompt.
     llm_name : str, optional
-        Full name of the LLM (or version) to be accessed. Must be one
-        available in Ollama and previously downloaded locally.
+        Name of the model in Ollama.
     llm : ChatOllama, optional
-        Chat model wrapper.
+        Model wrapper.
     """
 
     _default_config: str = "base.toml"
@@ -74,6 +66,7 @@ class BaseReader(metaclass=abc.ABCMeta):
         llm: None | ChatOllama = None,
         inconsistency_statement: None | str = None,
     ) -> None:
+        """Initialise BaseReader."""
         self.urls = urls
         base_config = toml.load("src/parliai_public/_config/base.toml")
         self.terms = terms or base_config["keywords"]
@@ -90,22 +83,7 @@ class BaseReader(metaclass=abc.ABCMeta):
 
     @classmethod
     def _load_config(cls, path: None | str = None) -> dict:
-        """
-        Load a configuration file from disk.
-
-        If no path is supplied, the default is used for the class.
-
-        Parameters
-        ----------
-        path : str, optional
-            Path to configuration file. If `None`, the default is used.
-
-        Returns
-        -------
-        config : dict
-            Dictionary containing configuration details.
-        """
-
+        """Load a configuration file."""
         if isinstance(path, str):
             return toml.load(path)
 
@@ -117,23 +95,7 @@ class BaseReader(metaclass=abc.ABCMeta):
 
     @classmethod
     def from_toml(cls, path: None | str = None) -> "BaseReader":
-        """
-        Create an instance of the class from a configuration TOML file.
-
-        A complete configuration file will include all parameters listed
-        in the doc-string of this class.
-
-        Parameters
-        ----------
-        path : str, optional
-            Path to configuration file. If `None`, the default is used.
-
-        Returns
-        -------
-        reader : BaseReader
-            reader instance.
-        """
-
+        """Create an instance using a TOML file."""
         config = cls._load_config(path)
 
         start = config.pop("start", None)
@@ -148,40 +110,7 @@ class BaseReader(metaclass=abc.ABCMeta):
         return cls(**config)
 
     def check_contains_terms(self, string: str) -> bool:
-        """
-        Check whether a string contains any of the search terms.
-
-        If you have not specified any search terms, this function
-        returns `True`.
-
-        This function determines a term is contained in the search
-        string using a regular expression. Using the standard `in`
-        operator on two strings would lead to false positives. For
-        instance, it would say the term "dog" is in the phrase
-        "dogmatism is the greatest of mental obstacles to human
-        happiness," which is not our intention.
-
-        Instead, we flag a term as being present if it appears at either
-        end of the string or in the middle with certain surrounding
-        characters:
-
-        - The term may be preceded by whitespace, square brackets or
-          parentheses.
-        - The term may be followed by whitespace, brackets, or a small
-          selection of punctuation, including things like commas and
-          full stops.
-
-        Parameters
-        ----------
-        string : str
-            String to be checked.
-
-        Returns
-        -------
-        contains : bool
-            Whether the string contains any search terms.
-        """
-
+        """Check whether a string contains any search terms."""
         terms = self.terms
         if not terms:
             return True
@@ -197,15 +126,7 @@ class BaseReader(metaclass=abc.ABCMeta):
         return False
 
     def make_outdir(self) -> None:
-        """
-        Create the output directory for a run.
-
-        Attributes
-        ----------
-        outdir : str
-            Updated output directory, defined by the runtime parameters.
-        """
-
+        """Create the output directory for a run."""
         start, end = min(self.dates), max(self.dates)
         period = ".".join(map(dt.date.isoformat, [start, end]))
         name = ".".join((period, self.llm_name))
@@ -217,23 +138,7 @@ class BaseReader(metaclass=abc.ABCMeta):
         self.outdir = outdir
 
     def _tag_outdir(self, outdir: str) -> str:
-        """
-        Determine a unique version for the output directory and tag it.
-
-        If the output directory already exists, then we add a number tag
-        to the end of the directory name. This number is incremental.
-
-        Parameters
-        ----------
-        outdir : str
-            Output directory path.
-
-        Returns
-        -------
-        outdir : str
-            Potentially updated directory path.
-        """
-
+        """Add an incremental tag if output directory already exists."""
         if not os.path.exists(outdir):
             return outdir
 
@@ -245,126 +150,44 @@ class BaseReader(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def retrieve_latest_entries(self) -> list[str]:
-        """
-        Replace with method for getting the latest entries to analyse.
-
-        Returns
-        -------
-        entries : list[str]
-            List of web pages from which to draw down relevant
-            information.
-        """
+        """Retrieve URLs of the latest pages."""
 
     def get(self, url: str, check: bool = True) -> None | BeautifulSoup:
-        """
-        Retrieve the HTML soup for a web page.
-
-        Parameters
-        ----------
-        url : str
-            Link to the web page.
-        check : bool, default=True
-            Whether to check the page for any relevant terms. Default is
-            to do so.
-
-        Returns
-        -------
-        soup : None | bs4.BeautifulSoup
-            HTML soup of the web page if the page contains any relevant
-            terms. Otherwise, `None`.
-        """
-
+        """Retrieve HTML soup for a webpage."""
         page = requests.get(url)
         soup = BeautifulSoup(page.content, "html.parser")
         if (not check) or (
             check and self.check_contains_terms(soup.get_text())
         ):
             return soup
+        return None
 
     def read(self, url: str) -> None | dict:
-        """
-        Read a web page, and return its contents if it is relevant.
-
-        Parameters
-        ----------
-        url : str
-            Link to the web page to read.
-
-        Returns
-        -------
-        page : None | dict
-            If the web page is relevant, return a dictionary format of
-            the page text and metadata. Otherwise, `None`.
-        """
-
+        """Read metadata + contents if page matches search criteria."""
         soup = self.get(url)
         page = None
         if soup is not None:
             metadata = self._read_metadata(url, soup)
             contents = self._read_contents(soup)
             page = {**metadata, **contents}
-
         return page
 
     @abc.abstractmethod
     def _read_metadata(self, url: str, soup: BeautifulSoup) -> dict:
-        """
-        Replace with method to read metadata from an entry.
-
-        Parameters
-        ----------
-        url : str
-            URL of the entry.
-        soup : bs4.BeautifulSoup
-            HTML soup of the entry.
-
-        Returns
-        -------
-        metadata : dict
-            Dictionary containing the relevant metadata.
-        """
+        """Extract metadata from HTML."""
 
     @abc.abstractmethod
     def _read_contents(self, soup: BeautifulSoup) -> dict:
-        """
-        Replace with method to read text content from some HTML soup.
-
-        Parameters
-        ----------
-        soup : bs4.BeautifulSoup
-            HTML soup of a webpage.
-
-        Returns
-        -------
-        text : dict
-            Dictionary containing any of the relevant contents on the
-            webpage in plain-text format.
-        """
+        """Extract text from HTML."""
 
     def instantiate_llm(self) -> None:
-        """Instantiate LLM object per user specification."""
-
-        # Temporary override to default to Gemma (known/tested LLM)
+        """Instantiate LLM object."""
         self.llm_name = "gemma"
         self.llm = ChatOllama(model=self.llm_name, temperature=0)
-
         return None
 
     def analyse(self, transcript: dict) -> dict:
-        """
-        Send some text to the LLM for analysis (and receive a response).
-
-        Parameters
-        ----------
-        transcript : dict
-            Web page transcript with a `text` entry to be analysed.
-
-        Returns
-        -------
-        transcript : dict
-            Updated transcript with the LLM response.
-        """
-
+        """Send text chunks to LLM for analysis."""
         chunks = self._split_text_into_chunks(transcript["text"])
 
         responses = []
@@ -372,34 +195,17 @@ class BaseReader(metaclass=abc.ABCMeta):
             if self.check_contains_terms(chunk.page_content):
                 response = self._analyse_chunk(chunk)
 
-                # failed check
                 if not self._check_response(response, chunk):
                     response += f"\n\n{self.inconsistency_statement}"
-                    print("LLM response inconsistent with source.")
 
                 responses.append(response)
 
         transcript["response"] = "\n\n".join(responses)
-
         return transcript
 
     def clean_response(self, response: str):
-        """
-        Remove 'Sure....:' preamble if gemma model used.
-
-        Parameters
-        ----------
-        response : str
-            Raw response from LLM.
-
-        Returns
-        -------
-        response : str
-            Cleaned response.
-        """
-
-        response = re.sub(r"^Sure(.*?\:)\s*", "", response)
-
+        """Remove unwanted prefix in Gemma model responses."""
+        response = re.sub(r"^Sure(.*?:)\s*", "", response)
         return response
 
     @staticmethod
@@ -409,29 +215,7 @@ class BaseReader(metaclass=abc.ABCMeta):
         size: int = 4000,
         overlap: int = 1000,
     ) -> list[Document]:
-        r"""
-        Split a debate into chunks to be processed by the LLM.
-
-        Some of the speeches within a single debate can get very large,
-        making them intractable for the LLM.
-
-        Parameters
-        ----------
-        text : str
-            Text to be split.
-        sep : str
-            Separator to define natural chunks. Defaults to `. `.
-        size : int
-            Chunk size to aim for. Defaults to 20,000 tokens.
-        overlap : int
-            Overlap between chunks. Defaults to 4,000 tokens.
-
-        Returns
-        -------
-        chunks : list[Document]
-            Chunked-up text for processing.
-        """
-
+        """Split long text into LLM-friendly chunks."""
         splitter = RecursiveCharacterTextSplitter(
             separators=sep,
             chunk_size=size,
@@ -440,26 +224,13 @@ class BaseReader(metaclass=abc.ABCMeta):
             keep_separator=False,
             is_separator_regex=False,
         )
-
         return splitter.create_documents([text])
 
     def _analyse_chunk(self, chunk: Document) -> str:
-        """
-        Extract the relevant content from a chunk using LLM.
-
-        Parameters
-        ----------
-        chunk : langchain.docstore.document.Document
-            Document with the chunk contents to be processed.
-
-        Returns
-        -------
-        response : str
-            LLM response, lightly formatted.
-        """
-
+        """Analyse one chunk using an LLM."""
         prompt_template = PromptTemplate(
-            input_variables=["keywords", "text"], template=self.prompt
+            input_variables=["keywords", "text"],
+            template=self.prompt,
         )
         prompt = prompt_template.format(
             keywords=self.terms, text=chunk.page_content
@@ -467,61 +238,52 @@ class BaseReader(metaclass=abc.ABCMeta):
 
         llm = self.llm
         response = llm.invoke(prompt).content.strip()
+
         if self.llm_name == "gemma":
             response = self.clean_response(response)
 
         return response
 
+    @staticmethod
+    def _normalise_text(text: str) -> str:
+        """Normalise text for comparison."""
+        text = text.lower()
+        return re.sub(r"[^\w\s]", "", text)
+
     def _check_response(self, response: str, chunk: Document) -> bool:
-        """Check if LLM response appears verbatim in original text.
+        """
+        Check if LLM response appears verbatim in original text.
 
         Parameters
         ----------
         response : str
-            LLM response, lightly formatted.
-        chunk : langchain.docstore.document.Document
-            Document with the chunk contents.
+            LLM response.
+        chunk : Document
+            Original text chunk.
 
         Returns
         -------
         passed : bool
-            True/False the LLM response is present exactly in the original.
+            True if LLM response text appears in original.
         """
-
-        # TODO: string formatting function to reduce code
-        original = chunk.page_content.lower()
-        original = re.sub(r"[^\w\s]", "", original)
-
-        passed = False
+        original = self._normalise_text(chunk.page_content)
 
         for el in response.split(". "):
-            el = el.lower()
-            el = re.sub(r"[^\w\s]", "", el)
+            normalised_el = self._normalise_text(el)
+            if not normalised_el:
+                continue
+            if normalised_el not in original:
+                return False
 
-            if el.lower() not in original:
-                passed = False
-                return passed
-            else:
-                passed = True
-
-        return passed
+        return True
 
     def save(self, page: dict) -> None:
         """
-        Save an HTML entry to a more compact JSON format.
+        Save an HTML entry in compact JSON format.
 
-        We use the metadata to create a file path for the JSON data. The
-        file itself is called `{content["idx"]}.json` and it is saved at
-        `self.outdir` under the `{content["cat"]}` directory if the
-        entry has a category. Otherwise, it is saved in `self.outdir`.
-
-        Parameters
-        ----------
-        page : dict
-            Dictionary containing the contents and metadata of the
-            entry.
+        The file is stored inside an output directory based on category
+        and index.
         """
-
         cat, idx = page.get("cat"), page.get("idx")
 
         root = os.path.join(self.outdir, "data")
@@ -533,40 +295,10 @@ class BaseReader(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def render(self, transcript: dict) -> str:
-        """
-        Replace with a method to render an entry in Markdown.
-
-        Parameters
-        ----------
-        transcript : dict
-            Dictionary containing the metadata and contents of the web
-            page to be rendered. This dictionary also includes the LLM
-            response(s) for that page.
-
-        Returns
-        -------
-        rendering : str
-            A rendering of the page and its metadata in Markdown format.
-        """
+        """Render a Markdown summary of an entry."""
 
     def make_header(self, urls: list[str] = None) -> str:
-        """
-        Make the header for a summary report.
-
-        Parameters
-        ----------
-        urls : list[str], optional
-            List of URLs to report in summary. If not specified, which
-            is the expected user behaviour, the URLs used by the reader
-            will be used.
-
-        Returns
-        -------
-        header : str
-            Markdown string with details of the reporting date, period
-            covered, and source of materials.
-        """
-
+        """Make header for summary output."""
         form = "%a, %d %b %Y"
         today = dt.date.today().strftime(form)
 
@@ -580,6 +312,7 @@ class BaseReader(metaclass=abc.ABCMeta):
 
         urls = urls or self.urls
         source = f"Based on information from {self._source}:\n"
+
         links = []
         for url in urls:
             parsed = urlparse(url)
